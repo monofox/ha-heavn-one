@@ -1,0 +1,2 @@
+DOMAIN = "ha_heavn_one"
+DEFAULT_SCAN_INTERVAL = 600

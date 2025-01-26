@@ -1,0 +1,26 @@
+{
+    "domain": "ha_heavn_one",
+    "name": "HEAVN One",
+    "version": "0.0.1",
+    "after_dependencies": [],
+    "codeowners": [
+        "@mono"
+    ],
+    "dependencies": ["bluetooth_adapters"],
+    "documentation": "https://git.monobear.eu/mono/ha-heavn-one/",
+    "integration_type": "device",
+    "iot_class": "local_push",
+    "issue_tracker": "https://git.monobear.eu/mono/ha-heavn-one/-/issues",
+    "loggers": [
+        "heavn"
+    ],
+    "requirements": [
+        "bleak>=0.20.0"
+    ],
+    "quality_scale": "platinum",
+    "bluetooth": [
+        {
+            "service_uuid": "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+        }
+    ]
+}
