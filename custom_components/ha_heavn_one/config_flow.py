@@ -100,15 +100,18 @@ class HeavnOneConfigFlow(ConfigFlow, domain=DOMAIN):
         self.context["title_placeholders"] = {"name": name}
         self._discovered_device = Discovery(name, discovery_info, device)
 
-        return await self.async_step_bluetooth_confirm()
+        return await self.async_step_bluetooth_confirm(device)
 
     async def async_step_bluetooth_confirm(
-        self, user_input: dict[str, Any] | None = None
+        self, device: HeavnOneDevice,
+        user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Confirm discovery."""
         if user_input is not None:
             return self.async_create_entry(
-                title=self.context["title_placeholders"]["name"], data={}
+                title=self.context["title_placeholders"]["name"], data={
+                    CONF_ADDRESS: device.address,
+                }
             )
 
         self._set_confirm_only()
