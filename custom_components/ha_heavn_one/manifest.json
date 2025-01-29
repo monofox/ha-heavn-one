@@ -12,15 +12,28 @@
     "iot_class": "local_push",
     "issue_tracker": "https://git.monobear.eu/mono/ha-heavn-one/-/issues",
     "loggers": [
-        "heavn"
+        "heavn",
+        "homeassistant.components.ha_heavn_one.config_flow",
+        "homeassistant.components.ha_heavn_one",
+        "components.ha_heavn_one.config_flow"
     ],
     "requirements": [
         "bleak>=0.20.0"
     ],
-    "quality_scale": "platinum",
+    "config_flow": true,
+    "quality_scale": "custom",
     "bluetooth": [
         {
-            "service_uuid": "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+            "service_data_uuid": "6e400001-b5a3-f393-e0a9-e50e24dcca9e",
+            "connectable": true
+        },
+        {
+            "service_uuid": "6e400001-b5a3-f393-e0a9-e50e24dcca9e",
+            "connectable": true
+        },
+        {
+            "local_name": "HEAVN*",
+            "connectable": true
         }
     ]
 }

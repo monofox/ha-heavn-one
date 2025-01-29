@@ -2,74 +2,95 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 import logging
-import dataclasses
-
-from .heavn import HeavnOneDevice
 
 from homeassistant import config_entries
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
-    SensorStateClass,
 )
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
-    CONCENTRATION_PARTS_PER_BILLION,
     CONCENTRATION_PARTS_PER_MILLION,
-    LIGHT_LUX,
+    CONF_ADDRESS,
     PERCENTAGE,
     UnitOfPressure,
     UnitOfTemperature,
-    UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
-from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
-from homeassistant.helpers.update_coordinator import (
-    CoordinatorEntity,
-    DataUpdateCoordinator,
-)
-from homeassistant.util.unit_system import METRIC_SYSTEM
 
 from .const import DOMAIN
+from .entity import HeavnOneEntity, HeavnOneSwitchEntity
+from .heavn import HeavnOneDevice, HeavnOneProtocolHandler
 
 _LOGGER = logging.getLogger(__name__)
 
-SENSORS_MAPPING_TEMPLATE: dict[str, SensorEntityDescription] = {
-    "name": SensorEntityDescription(
-        key="name",
-        name="Name",
-        state_class=SensorStateClass.MEASUREMENT,
-        icon="mdi:radioactive",
-    ),
-    "serial_number": SensorEntityDescription(
-        key="serial_number",
-        name="Serial number",
-        state_class=SensorStateClass.MEASUREMENT,
-        icon="mdi:radioactive",
-    ),
-    "temperature": SensorEntityDescription(
+
+@dataclass(frozen=True, kw_only=True)
+class HeavnOneSensorEntityDescription[_T](SensorEntityDescription):
+    """Entity description of a sensor entity with initial_value attribute."""
+
+    initial_value: str | None = None
+    command_type: str
+    register_callback_func: Callable[
+        [HeavnOneDevice], Callable[[Callable[[_T | None], None]], None]
+    ]
+    value_func: Callable[[_T | None], StateType]
+    is_supported: Callable[[HeavnOneDevice], bool] = lambda device: True
+
+
+SENSORS: tuple[HeavnOneSensorEntityDescription, ...] = (
+    HeavnOneSensorEntityDescription[float](
         key="temperature",
+        command_type=HeavnOneProtocolHandler.GET_TEMPERATURE,
         device_class=SensorDeviceClass.TEMPERATURE,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        value_func=lambda value: value.dataValue,
+        register_callback_func=lambda device: device.register_sensor_callback,
         name="Temperature",
     ),
-    "humidity": SensorEntityDescription(
+    HeavnOneSensorEntityDescription[float](
         key="humidity",
+        command_type=HeavnOneProtocolHandler.GET_HUMIDITY,
         device_class=SensorDeviceClass.HUMIDITY,
         native_unit_of_measurement=PERCENTAGE,
+        value_func=lambda value: value.dataValue,
+        register_callback_func=lambda device: device.register_sensor_callback,
         name="Humidity",
     ),
-    "pressure": SensorEntityDescription(
+    HeavnOneSensorEntityDescription[int](
         key="pressure",
+        command_type=HeavnOneProtocolHandler.GET_PRESSURE,
         device_class=SensorDeviceClass.PRESSURE,
         native_unit_of_measurement=UnitOfPressure.MBAR,
+        value_func=lambda value: value.dataValue,
+        register_callback_func=lambda device: device.register_sensor_callback,
         name="Pressure",
     ),
-}
+    HeavnOneSensorEntityDescription[float](
+        key="co2",
+        command_type=HeavnOneProtocolHandler.GET_CO2,
+        device_class=SensorDeviceClass.CO2,
+        native_unit_of_measurement=CONCENTRATION_PARTS_PER_MILLION,
+        value_func=lambda value: value.dataValue,
+        register_callback_func=lambda device: device.register_sensor_callback,
+        name="CO2",
+    ),
+    HeavnOneSensorEntityDescription[float](
+        key="co2_accuracy",
+        command_type=HeavnOneProtocolHandler.GET_CO2_ACCURACY,
+        device_class=None,
+        native_unit_of_measurement=None,
+        value_func=lambda value: value.dataValue,
+        register_callback_func=lambda device: device.register_sensor_callback,
+        name="CO2 Accuracy",
+    ),
+)
 
 
 async def async_setup_entry(
@@ -78,62 +99,46 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
 
-    coordinator: DataUpdateCoordinator[HeavnOneDevice] = hass.data[DOMAIN][entry.entry_id]
-
-    # we need to change some units
-    sensors_mapping = SENSORS_MAPPING_TEMPLATE.copy()
-    entities = []
-    _LOGGER.debug("got sensors: %s", coordinator.data.sensors)
-    for sensor_type, sensor_value in coordinator.data.sensors.items():
-        if sensor_type not in sensors_mapping:
-            _LOGGER.debug(
-                "Unknown sensor type detected: %s, %s",
-                sensor_type,
-                sensor_value,
-            )
-            continue
-        entities.append(
-            HeavnOneSensor(coordinator, coordinator.data, sensors_mapping[sensor_type])
-        )
-
+    device: HeavnOneDevice = hass.data[DOMAIN][entry.entry_id]
+    _LOGGER.info(f"Setup sensor values for device {device.address}")
+    entities: list[SensorEntity] = [
+        HeavnOneSensorEntity(device, entry, description)
+        for description in SENSORS
+        if description.is_supported(device)
+    ]
     async_add_entities(entities)
 
 
-class HeavnOneSensor(CoordinatorEntity[DataUpdateCoordinator[HeavnOneDevice]], SensorEntity):
-    _attr_has_entity_name = True
+class HeavnOneSensorEntity[_T](HeavnOneEntity, SensorEntity):
+    """Representation of a sensor entity."""
+
+    entity_description: SensorEntityDescription[_T]
 
     def __init__(
         self,
-        coordinator: DataUpdateCoordinator,
         device: HeavnOneDevice,
-        entity_description: SensorEntityDescription,
+        entry: ConfigEntry,
+        entity_description: HeavnOneSensorEntityDescription[_T],
     ) -> None:
-        super().__init__(coordinator)
-        self.entity_description = entity_description
+        """Initialize the sensor entity."""
+        super().__init__(
+            device, entry, entity_description, unique_id_suffix=entity_description.key
+        )
+        self._attr_native_value = entity_description.initial_value
 
-        name = f"{device.name} {device.identifier}"
-
-        self._attr_unique_id = f"{name}_{entity_description.key}"
-
-        self._id = device.address
-        self._attr_device_info = DeviceInfo(
-            connections={
-                (
-                    CONNECTION_BLUETOOTH,
-                    device.address,
-                )
-            },
-            name=name,
-            manufacturer="HEAVN",
-            model="HEAVN One",
-            hw_version=device.hw_version,
-            sw_version=device.sw_version,
+    async def async_added_to_hass(self) -> None:
+        """Log sensor entity information."""
+        _LOGGER.debug(
+            "(%s) Setting up %s sensor entity",
+            self.entry.data[CONF_ADDRESS],
+            self.entity_description.key.replace("_", " "),
         )
 
-    @property
-    def native_value(self) -> StateType:
-        """Return the value reported by the sensor."""
-        try:
-            return self.coordinator.data.sensors[self.entity_description.key]
-        except KeyError:
-            return None
+        def async_callback(value: _T | None) -> None:
+            """Update the sensor value."""
+            self._attr_native_value = self.entity_description.value_func(value)
+            self.async_write_ha_state()
+
+        self.entity_description.register_callback_func(self.device)(
+            self.entity_description.command_type, async_callback
+        )

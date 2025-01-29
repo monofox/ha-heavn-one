@@ -1,12 +1,9 @@
-"""Config flow for RD200 BlE integration."""
-
 from __future__ import annotations
 
 import dataclasses
 import logging
 from typing import Any
 
-from .heavn import RD200BluetoothDeviceData, RD200Device
 from bleak import BleakError
 import voluptuous as vol
 
@@ -20,6 +17,7 @@ from homeassistant.const import CONF_ADDRESS
 from homeassistant.data_entry_flow import FlowResult
 
 from .const import DOMAIN
+from .heavn import HeavnOneBluetoothDeviceData, HeavnOneDevice
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,10 +28,10 @@ class Discovery:
 
     name: str
     discovery_info: BluetoothServiceInfo
-    device: RD200Device
+    device: HeavnOneDevice
 
 
-def get_name(device: RD200Device) -> str:
+def get_name(device: HeavnOneDevice) -> str:
     """Generate name with identifier for device."""
 
     return f"{device.name}"
@@ -55,7 +53,7 @@ class HeavnOneConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def _get_device_data(
         self, discovery_info: BluetoothServiceInfo
-    ) -> RD200Device:
+    ) -> HeavnOneDevice:
         ble_device = bluetooth.async_ble_device_from_address(
             self.hass, discovery_info.address
         )
@@ -63,11 +61,10 @@ class HeavnOneConfigFlow(ConfigFlow, domain=DOMAIN):
             _LOGGER.debug("no ble_device in _get_device_data")
             raise HeavnOneDeviceUpdateError("No ble_device")
 
-        rd200 = RD200BluetoothDeviceData(_LOGGER)
+        device = HeavnOneBluetoothDeviceData(_LOGGER)
 
         try:
-            data = await rd200.update_device(ble_device)
-            data.name = discovery_info.advertisement.local_name
+            data = await device.update_device(ble_device)
             data.address = discovery_info.address
             data.identifier = discovery_info.advertisement.local_name
         except BleakError as err:
@@ -81,7 +78,7 @@ class HeavnOneConfigFlow(ConfigFlow, domain=DOMAIN):
             _LOGGER.error(
                 "Unknown error occurred from %s: %s", discovery_info.address, err
             )
-            raise err
+            raise
         return data
 
     async def async_step_bluetooth(
@@ -96,7 +93,7 @@ class HeavnOneConfigFlow(ConfigFlow, domain=DOMAIN):
             device = await self._get_device_data(discovery_info)
         except HeavnOneDeviceUpdateError:
             return self.async_abort(reason="cannot_connect")
-        except Exception:  # pylint: disable=broad-except
+        except Exception:  # pylint: disable=broad-except  # noqa: BLE001
             return self.async_abort(reason="unknown")
 
         name = get_name(device)
@@ -136,7 +133,9 @@ class HeavnOneConfigFlow(ConfigFlow, domain=DOMAIN):
 
             self._discovered_device = discovery
 
-            return self.async_create_entry(title=discovery.name, data={})
+            return self.async_create_entry(title=discovery.name, data={
+                CONF_ADDRESS: address,
+            })
 
         current_addresses = self._async_current_ids()
         for discovery_info in async_discovered_service_info(self.hass):
@@ -144,40 +143,28 @@ class HeavnOneConfigFlow(ConfigFlow, domain=DOMAIN):
             if address in current_addresses or address in self._discovered_devices:
                 continue
 
+            if '6e400001-b5a3-f393-e0a9-e50e24dcca9e' not in discovery_info.service_uuids:
+                continue
+
             ##
-
-            if discovery_info.advertisement.local_name is None:
-                continue
-
-            if not (
-                discovery_info.advertisement.local_name.startswith("FR:RU")
-                or discovery_info.advertisement.local_name.startswith("FR:RE")
-                or discovery_info.advertisement.local_name.startswith("FR:GI")
-                or discovery_info.advertisement.local_name.startswith("FR:H")
-                or discovery_info.advertisement.local_name.startswith("FR:R2")
-                or discovery_info.advertisement.local_name.startswith("FR:RD")
-                or discovery_info.advertisement.local_name.startswith("FR:GL")
-                or discovery_info.advertisement.local_name.startswith("FR:GJ")
-                or discovery_info.advertisement.local_name.startswith("FR:I")
-            ):
-                continue
-
             _LOGGER.debug("Found My Device")
-            _LOGGER.debug("RD2000 Discovery address: %s", address)
-            _LOGGER.debug("RD2000 Man Data: %s", discovery_info.manufacturer_data)
-            _LOGGER.debug("RD2000 advertisement: %s", discovery_info.advertisement)
-            _LOGGER.debug("RD2000 device: %s", discovery_info.device)
-            _LOGGER.debug("RD2000 service data: %s", discovery_info.service_data)
-            _LOGGER.debug("RD2000 service uuids: %s", discovery_info.service_uuids)
-            _LOGGER.debug("RD2000 rssi: %s", discovery_info.rssi)
+            _LOGGER.debug("HeavnOne Discovery address: %s", address)
+            _LOGGER.debug("HeavnOne Man Data: %s", discovery_info.manufacturer_data)
+            _LOGGER.debug("HeavnOne advertisement: %s", discovery_info.advertisement)
+            _LOGGER.debug("HeavnOne device: %s", discovery_info.device)
+            _LOGGER.debug("HeavnOne service data: %s", discovery_info.service_data)
+            _LOGGER.debug("HeavnOne service uuids: %s", discovery_info.service_uuids)
+            _LOGGER.debug("HeavnOne rssi: %s", discovery_info.rssi)
             _LOGGER.debug(
-                "RD2000 advertisement: %s", discovery_info.advertisement.local_name
+                "HeavnOne advertisement: %s", discovery_info.advertisement.local_name
             )
             try:
                 device = await self._get_device_data(discovery_info)
             except HeavnOneDeviceUpdateError:
-                return self.async_abort(reason="cannot_connect")
-            except Exception:  # pylint: disable=broad-except
+                _LOGGER.info("Could not get device data: {:s}".format(address))
+                # try a different one.
+                continue
+            except Exception:  # pylint: disable=broad-except  # noqa: BLE001
                 return self.async_abort(reason="unknown")
             name = get_name(device)
             self._discovered_devices[address] = Discovery(name, discovery_info, device)

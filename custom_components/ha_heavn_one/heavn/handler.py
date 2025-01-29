@@ -1,27 +1,57 @@
-import logging
+"""Implementation of the HEAVN One Lamp Protocol."""
 import datetime
+import logging
 
 LOGGER = logging.getLogger('heavn')
 
 class InvalidProtocolData(Exception):
-    pass
+    """Wrapper for exception in case of invalid response was received."""
 
-class HeavnOneData():
-    
-    def __init__(self, cmd: str, dataType: str, dataValue: any):
+
+class HeavnOneData:
+    """Wrapper for HeavnOne sensor / command responses."""
+
+    def __init__(self, cmd: str, dataType: str, dataValue: any) -> None:
+        """Initialize HeavnOneData Wrapper.
+
+        Args:
+            cmd (str): Command type string (cf. HeavnOneProtocolHandler)
+            dataType (str): Data Type in string (str, int, float, datetime,...)
+            dataValue (any): Data value
+
+        """
         self.cmd = cmd
         self.dataType = dataType
         self.dataValue = dataValue
 
+    def __str__(self) -> str:
+        """Return object as string representation.
 
-class HeavnOneProtocolHandler():
-    """
+        Returns:
+            str: String to explain data.
+
+        """
+        return f'Command: {self.cmd}, type: {self.dataType}, value: {self.dataValue}'
+
+    def __repr__(self) -> str:
+        """Return representation of object.
+
+        Returns:
+            str: String to represent object.
+
+        """
+        return f'<HeavnOneData cmd={self.cmd} dataType={self.dataType} dataValue={self.dataValue}>'
+
+class HeavnOneProtocolHandler:
+    """HEAVN One Lamp Protocol Handler.
+
     Not all commands are available to all systems.
-    Very secret passwords (authentication): 
+    Very secret passwords (authentication):
      - Developer: D3v3l0p3rM0d3
      - Merchant: M3rch4ntM0d3
      - Coworking: C0w0rk1n9M0d3
     """
+
     CO2 = "g"
     CO2_ACCURACY = "a"
     COMMAND_MANUAL = "C"
@@ -122,22 +152,25 @@ class HeavnOneProtocolHandler():
     TEMPERATURE = "t"
     TOGGLE_MANUAL_MODE = "R"
     SIDES = ['up', 'bio', 'down']
-    
+
     def reqCO2(self):
         return self._buildCommand(self.GET_CO2)
-    
+
     def reqCO2Accuracy(self):
         return self._buildCommand(self.GET_CO2_ACCURACY)
-    
+
     def reqAirQualityLED(self):
         return self._buildCommand(self.GET_AIR_QUALITY_LED_ENABLED)
-    
+
     def reqLightSensor(self):
         return self._buildCommand(self.GET_LIGHT_SENSOR)
-    
+
     def reqVersion(self):
         return self._buildCommand(self.GET_VERSION)
-    
+
+    def reqHwVersion(self):
+        return self._buildCommand(self.GET_MAIN_PCB_FIRMWARE_VERSION)
+
     def reqName(self):
         """Build command to request the devices name
 
@@ -145,7 +178,7 @@ class HeavnOneProtocolHandler():
             str: command
         """
         return self._buildCommand(self.GET_NAME)
-    
+
     def reqSerialNumber(self):
         """Build command to request the devices serial number
 
@@ -153,31 +186,31 @@ class HeavnOneProtocolHandler():
             str: command
         """
         return self._buildCommand(self.GET_SERIAL_NUMBER)
-    
+
     def reqUtcTime(self):
         return self._buildCommand(self.GET_UTC_TIME)
-    
+
     def reqCoffeeRelaxActivity(self):
         return self._buildCommand(self.GET_COFFEE_RELAX_ACTIVITY)
-    
+
     def reqSetUtcTime(self, dt=None):
         if not dt:
             dt = datetime.datetime.utcnow()
         pr = dt.strftime('%H%M%S')
         return self._buildCommand(self.SET_UTC_TIME, pr)
-        
+
     def reqSetUtcOffset(self, utcOffset: int = 0):
         utcOffset += 0 if utcOffset >= 0 else 24
         utcOffsetStr = '{:0>2d}'.format(utcOffset)
         return self._buildCommand(self.SET_UTC_OFFSET, utcOffsetStr)
-    
+
     def reqSetSunCycleTime(self, dt=None):
         if not dt:
             dt = datetime.datetime.now()
         # need to send in: HHmmssddMMyy
         pr = dt.strftime('%H%M%S%d%m%y')
         return self._buildCommand(self.SET_SUN_CYCLE_TIME, pr)
-    
+
     def reqGetSunCycleTime(self):
         return self._buildCommand(self.GET_SUN_CYCLE_TIME)
 
@@ -197,21 +230,24 @@ class HeavnOneProtocolHandler():
             self.PREFIX + \
             self.GET_METRICS_GET_TIMESTAMP
         return self._buildCommand(command)
-    
+
     def reqButtonStates(self):
         return self._buildCommand(self.GET_TOP_MID_BOT)
-    
-    def reqGetAllChannels(self, channel: int = None):
+
+    def reqGetAllChannels(self, channel: int | None = None):
         # channels:
         # 0 = TopWW, 1 = TopNW, 2 = TopCW, 3 = MidWW, 4 = MidCW, 5 = MidBlue, 6 = BotWW, 7 = BotNW, 8 = BotCW
         commands = b''
         if channel is None:
-            for channel in range(0, 11):
-                commands += self._buildCommand(self.GET_CHANNEL_DIRECT, str(channel))
+            for channelId in range(11):
+                commands += self._buildCommand(self.GET_CHANNEL_DIRECT, str(channelId))
         else:
             commands = self._buildCommand(self.GET_CHANNEL_DIRECT, str(channel))
         return commands
-    
+
+    def reqGetManualModeState(self):
+        return self._buildCommand(self.GET_MANUAL_MODE_ENABLED)
+
     # services
     def reqTogglePower(self):
         return self._buildCommand(self.COMMAND_SIMULATE_BUTTON, 'XXXXXD')
@@ -230,57 +266,55 @@ class HeavnOneProtocolHandler():
 
     def reqToggleBio(self):
         return self._buildCommand(self.COMMAND_SIMULATE_BUTTON, 'XXXXDX')
-    
+
     def reqSetManualMode(self, manualMode: bool = False):
         return self._buildCommand(
-            self.COMMAND_MANUAL
+            self.COMMAND_MANUAL, 1 if manualMode else 0
         )
-    
+
     def reqVideoMode(self):
         scene = [100, 60, 30, 15, 100, 65]
         # int(scene[(x * 2) + 1]) = temperature of side x
         # int(scene[(x * 2) + 0]) = intensity of side x
         # up = 1, bio = 2, down = 3
         # convert the index: up = 0; down = 2; bio = 1
-        
         return self.reqManualScene(scene)
-    
+
     def reqManualScene(self, scene):
         cmd = ''
         for s in range(0, self.SIDES):
             temp = int(scene[(s * 2) + 1])
             intensity = int(scene[(s * 2) + 0])
             cmd += self.PREFIX + self.COMMAND_SIDE_MANUAL_SET + self._padInteger(s, 2) + self._padInteger(intensity, 3) + self._padInteger(temp, 3)
-            
+
         return self._buildCommand(cmd, skipPrefix=True) + self.reqSetManualMode(True)
-    
+
     def reqSetPreset(self, scene):
         cmd = ''
         for s in range(0, self.SIDES):
             temp = int(scene[(s * 2) + 1])
             intensity = int(scene[(s * 2) + 0])
             cmd += self.PREFIX + self.SET_PRESET_DATA + '1' + str(s) + self._padInteger(intensity, 3) + self._padInteger(temp, 3)
-            
+
         return self._buildCommand(cmd, skipPrefix=True) + self.reqSetManualMode(True)
-    
+
     def reqSetPresetName(self, sceneName: str):
         if not sceneName:
             logging.error("Missing scene name!")
-            return
-        
+            return None
+
         if len(sceneName) > 10:
             logging.warning("Scene name too long: {:s}".format(sceneName))
             sceneName = sceneName[:10]
-            
+
         # FIXME: ensure, name is ascii.
-        
         # pad it
         while len(sceneName) < 10:
             sceneName += ' '
         return self._buildCommand(
             self.SET_PRESET_NAME + '1' + sceneName
         )
-        
+
     def reqGetPresetData(self):
         return self._buildCommand(
             self.PREFIX + self.GET_PRESET_DATA + '10' +
@@ -288,94 +322,95 @@ class HeavnOneProtocolHandler():
             self.PREFIX + self.GET_PRESET_DATA + '12',
             skipPrefix=True
         )
-    
+
     def reqGetPresetName(self):
         return self._buildCommand(self.GET_PRESET_NAME + '1')
-        
+
     def _buildCommand(self, cmd, parm=None, skipPrefix: bool = False):
         if not skipPrefix:
             cmd = self.PREFIX + cmd
         if parm:
             cmd += parm
-        
+
         return cmd.encode('ascii')
-    
+
     def _padInteger(self, value, digits):
         strValue = str(value)
         while len(strValue) < digits:
             strValue = '0' + strValue
-            
         return strValue
-    
+
     def handleResponse(self, value: bytearray):
         cmd = value.decode('ascii')
         if cmd[0] != '$':
             logging.warning("Got command without a response {:s}".format(str(value)))
             return None
-        
+
         if cmd[1] == self.SET_INTENSITY:
             return self.onIntensityReceived(cmd[2:])
-        elif cmd[1] == self.GET_TOP_MID_BOT:
+        if cmd[1] == self.GET_TOP_MID_BOT:
             return self.onButtonStateReceived(cmd[2:])
-        elif cmd[1] == self.GET_VERSION:
+        if cmd[1] == self.GET_VERSION:
             return self.onVersion(cmd[2:])
-        elif cmd[1:3] == self.GET_NAME:
+        if cmd[1:3] == self.GET_NAME:
             return self.onName(cmd[3:])
-        elif cmd[1] == self.GET_SERIAL_NUMBER:
+        if cmd[1:3] == self.GET_MAIN_PCB_FIRMWARE_VERSION:
+            return self.onHwVersion(cmd[3:])
+        if cmd[1] == self.GET_SERIAL_NUMBER:
             return self.onSerialNumber(cmd[2:])
-        elif cmd[1] == self.GET_COFFEE_RELAX_ACTIVITY:
+        if cmd[1] == self.GET_COFFEE_RELAX_ACTIVITY:
             return self.onCoffeeRelaxActivityReceived(cmd[2:])
-        elif cmd[1] == self.GET_LATITUDE:
+        if cmd[1] == self.GET_LATITUDE:
             return self.onLatitudeReceived(cmd[2:])
-        elif cmd[1] == self.GET_LONGITUDE:
+        if cmd[1] == self.GET_LONGITUDE:
             return self.onLongitudeReceived(cmd[2:])
-        elif cmd[1] in [self.GET_PRESENCE, self.SET_PRESENCE]:
+        if cmd[1] in [self.GET_PRESENCE, self.SET_PRESENCE]:
             return self.onPresenceReceived(cmd[2:])
-        elif cmd[1] in [self.GET_SUN_CYCLE_TIME]:
+        if cmd[1] in [self.GET_SUN_CYCLE_TIME]:
             return self.onSunCycleTimeReceived(cmd[2:])
-        elif cmd[1] == self.SET_SUN_CYCLE_TIME:
+        if cmd[1] == self.SET_SUN_CYCLE_TIME:
             return self.onUtcTimeReceived(cmd[2:])
-        elif cmd[1] == self.GET_SUN_DOWN_AND_DAWN:
+        if cmd[1] == self.GET_SUN_DOWN_AND_DAWN:
             return self.onSunDownAndDawnReceived(cmd[2:])
-        elif cmd[1] == self.GET_UTC_OFFSET:
+        if cmd[1] == self.GET_UTC_OFFSET:
             return self.onUtcOffsetReceived(cmd[2:])
-        elif cmd[1] == self.RECEIVE_RTC_TIME:
+        if cmd[1] == self.RECEIVE_RTC_TIME:
             return self.onUtcTimeReceived(cmd[2:])
-        elif cmd[1] == self.SET_CHANNEL_DIRECT:
+        if cmd[1] == self.SET_CHANNEL_DIRECT:
             return self.onChannelDirectReceived(cmd[2:])
-        elif cmd[1:3] == self.GET_CO2:
+        if cmd[1:3] == self.GET_CO2:
             return self.onCO2Received(cmd[3:])
-        elif cmd[1:4] == self.GET_METRICS_GET_CO2:
+        if cmd[1:4] == self.GET_METRICS_GET_CO2:
             return self.onCO2Received(cmd[4:])
-        elif cmd[1:3] == self.GET_CO2_ACCURACY:
+        if cmd[1:3] == self.GET_CO2_ACCURACY:
             return self.onCO2AccuracyReceived(cmd[3:])
-        elif cmd[1:4] == self.GET_METRICS_GET_CO2_ACCURACY:
+        if cmd[1:4] == self.GET_METRICS_GET_CO2_ACCURACY:
             return self.onCO2AccuracyReceived(cmd[4:])
-        elif cmd[1:3] == self.GET_HUMIDITY:
+        if cmd[1:3] == self.GET_HUMIDITY:
             return self.onHumidity(cmd[3:])
-        elif cmd[1:4] == self.GET_METRICS_GET_HUMIDITY:
+        if cmd[1:4] == self.GET_METRICS_GET_HUMIDITY:
             return self.onHumidity(cmd[4:])
-        elif cmd[1:3] == self.GET_PRESSURE:
+        if cmd[1:3] == self.GET_PRESSURE:
             return self.onPressure(cmd[3:])
-        elif cmd[1:4] == self.GET_METRICS_GET_PRESSURE:
+        if cmd[1:4] == self.GET_METRICS_GET_PRESSURE:
             return self.onPressure(cmd[4:])
-        elif cmd[1:3] == self.GET_TEMPERATURE:
+        if cmd[1:3] == self.GET_TEMPERATURE:
             return self.onTemperature(cmd[3:])
-        elif cmd[1:4] == self.GET_METRICS_GET_TEMPERATURE:
+        if cmd[1:4] == self.GET_METRICS_GET_TEMPERATURE:
             return self.onTemperature(cmd[4:])
-        elif cmd[1:3] == self.GET_AIR_QUALITY_LED_ENABLED:
+        if cmd[1:3] == self.GET_AIR_QUALITY_LED_ENABLED:
             return self.onAirQualityLEDReceived(cmd[3:])
-        elif cmd[1:3] == self.GET_LIGHT_SENSOR:
+        if cmd[1:3] == self.GET_LIGHT_SENSOR:
             return self.onLightSensor(cmd[3:])
-        elif cmd[1] == self.GET_MANUAL_MODE_ENABLED:
+        if cmd[1] == self.GET_MANUAL_MODE_ENABLED:
             return self.onManualMode(cmd[2:])
-        elif cmd[1:3] == self.SET_PRESET_DATA:
+        if cmd[1:3] == self.SET_PRESET_DATA:
             return self.onPresetData(cmd[3:])
-        else:
-            #raise Exception('Command unknown: {:s} / full: {:s}'.format(str(cmd[:2]), cmd))
-            logging.error('Command unknown: {:s} / full: {:s}'.format(str(cmd[:2]), cmd))
-            return None
-    
+
+        #raise Exception('Command unknown: {:s} / full: {:s}'.format(str(cmd[:2]), cmd))
+        logging.error('Command unknown: {:s} / full: {:s}'.format(str(cmd[:2]), cmd))
+        return None
+
     def onIntensityReceived(self, value):
         # three percentages: 100.030.095
         # sequence: right (down), bio, left (up)
@@ -403,17 +438,22 @@ class HeavnOneProtocolHandler():
     def onVersion(self, value):
         logging.info('Firmware version: {:s}'.format(value))
         self.firmwareVersion = value
+        return HeavnOneData(self.GET_VERSION, 'str', value)
+
+    def onHwVersion(self, value):
+        logging.info('Hardware version: {:s}'.format(value))
+        return HeavnOneData(self.GET_MAIN_PCB_FIRMWARE_VERSION, 'str', value)
 
     def onName(self, value):
         logging.info('Lamp name: {:s}'.format(value))
         self.name = value
-        
+
         return HeavnOneData(self.GET_NAME, 'str', value)
 
     def onSerialNumber(self, value):
         logging.info('Serial number: {:s}'.format(value))
         self.serialNumber = value
-        
+
         return HeavnOneData(self.GET_SERIAL_NUMBER, 'str', value)
 
     def onCoffeeRelaxActivityReceived(self, value):
@@ -455,7 +495,7 @@ class HeavnOneProtocolHandler():
     def onSunCycleTimeReceived(self, value):
         #return self.onUtcTimeReceived(value)
         pass
-    
+
     def onUtcTimeReceived(self, value):
         """Time is provided as e.g. 20:29.06 which is in UTC"""
         utcTime = datetime.datetime.now(datetime.UTC)
@@ -471,7 +511,7 @@ class HeavnOneProtocolHandler():
             tzinfo=datetime.UTC
         )
         logging.info('Current time on light: {time}'.format(time=lightTime))
-        return lightTime
+        return HeavnOneData(self.GET_UTC_TIME, 'datetime', lightTime)
 
     def onSunDownAndDawnReceived(self, value):
         """
@@ -550,53 +590,61 @@ class HeavnOneProtocolHandler():
         logging.debug('Channel Bot-CW: {:d}'.format(value))
 
     def onIntensityChanged(self, right, bio, left):
-        logging.info('Intensity: {:d} / {:d} / {:d}'.format(right, bio, left))
+        logging.debug('Intensity: {:d} / {:d} / {:d}'.format(right, bio, left))
         self.intensityLeft = left
         self.intensityBio = bio
         self.intensityRight = right
-        
+
     def onCO2Received(self, value):
         # BME680 - it will give relative values!
         # Example: 030.46
         floatValue = float(value)
-        logging.info('CO2 value read: {:.2f}'.format(floatValue))
-        
+        logging.debug('CO2 value read: {:.2f}'.format(floatValue))
+        return HeavnOneData(self.GET_CO2, 'float', floatValue)
+
     def onCO2AccuracyReceived(self, value):
         # It seems to be a BME680
         # Example: 0-3
         intVal = int(value)
-        logging.info('CO2 Accuracy value read: {:d}'.format(intVal))
-    
+        logging.debug('CO2 Accuracy value read: {:d}'.format(intVal))
+        return HeavnOneData(self.GET_CO2_ACCURACY, 'int', intVal)
+
     def onAirQualityLEDReceived(self, value):
         # Example: 1
         intVal = int(value)
-        logging.info('Air Quality LED value read: {:d}'.format(intVal))
+        logging.debug('Air Quality LED value read: {:d}'.format(intVal))
+        return HeavnOneData(self.GET_AIR_QUALITY_LED_ENABLED, 'int', intVal)
 
     def onHumidity(self, value):
         # Example: 030.46
         floatValue = float(value)
-        logging.info('Humidity read: {:.2f}'.format(floatValue))
+        logging.debug('Humidity read: {:.2f}'.format(floatValue))
+        return HeavnOneData(self.GET_HUMIDITY, 'float', floatValue)
 
     def onPressure(self, value):
         # Example: 097796
         intValue = int(value)
-        logging.info('Pressure value read: {:d}'.format(intValue))
-        
+        logging.debug('Pressure value read: {:d}'.format(intValue))
+        return HeavnOneData(self.GET_PRESSURE, 'int', intValue)
+
     def onTemperature(self, value):
         # Example: 030.46
         floatValue = float(value)
-        logging.info('Temperature value read: {:.2f}'.format(floatValue))
-        
+        logging.debug('Temperature value read: {:.2f}'.format(floatValue))
+        return HeavnOneData(self.GET_TEMPERATURE, 'float', floatValue)
+
     def onLightSensor(self, value):
         # Example: 030.46
         floatValue = float(value)
-        logging.info('Light sensor value read: {:.2f}'.format(floatValue))
-    
+        logging.debug('Light sensor value read: {:.2f}'.format(floatValue))
+        return HeavnOneData(self.GET_LIGHT_SENSOR, 'float', floatValue)
+
     def onManualMode(self, value):
         # Example: 0 = false, 1 = true
         intVal = int(value)
-        logging.info('Manual mode value read: {:d}'.format(intVal))
-    
+        logging.debug('Manual mode value read: {:d}'.format(intVal))
+        return HeavnOneData(self.GET_MANUAL_MODE_ENABLED, 'bool', intVal == 1)
+
     def onPresetData(self, value):
         # Example: 10100060
         #          ^ fix
@@ -607,7 +655,6 @@ class HeavnOneProtocolHandler():
         sideName = self.SIDES[side]
         intensity = int(value[2:5])
         temperature = int(value[5:8])
-    
-        logging.info('Preset data received for {:s}: intensity = {:d}, temperature = {:d}'.format(
+        logging.debug('Preset data received for {:s}: intensity = {:d}, temperature = {:d}'.format(
             sideName, intensity, temperature)
         )
